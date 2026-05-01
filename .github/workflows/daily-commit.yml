@@ -1,0 +1,62 @@
+name: Daily Auto Commit
+
+on:
+  schedule:
+    - cron: '0 1 * * *'
+    - cron: '0 13 * * *'
+
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Manual run reason (optional)'
+        required: false
+        default: 'manual trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  auto-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git identity
+        run: |
+          git config --global user.name "yousseftaher65"
+          git config --global user.email "92369058+yousseftaher65@users.noreply.github.com"
+
+      - name: Write dynamic log entry
+        run: |
+          # one date call captures everything
+          read YEAR MONTH DATE TIME DAY WEEK \
+            <<< $(date -u '+%Y %m %Y-%m-%d %H:%M:%S %A %V')
+
+          LOG_FILE="logs/$YEAR-$MONTH.log"
+          mkdir -p logs
+
+          # append log entry
+          printf '[%s %s UTC] | run=${{ github.run_number }} | trigger=${{ github.event_name }} | week=%s | day=%s\n' \
+            "$DATE" "$TIME" "$WEEK" "$DAY" >> "$LOG_FILE"
+
+          # update summary
+          printf '# Activity Status\n\n| Field | Value |\n|---|---|\n| Last run | %s %s UTC |\n| Day | %s |\n| Week | %s |\n| Run # | ${{ github.run_number }} |\n| Trigger | ${{ github.event_name }} |\n| Log file | %s |\n' \
+            "$DATE" "$TIME" "$DAY" "$WEEK" "$LOG_FILE" > STATUS.md
+
+          # rotate: keep last 500 lines
+          tail -500 "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
+
+      - name: Commit and push
+        run: |
+          git add .
+          # Exit cleanly if nothing changed (idempotent)
+          git diff --cached --quiet && echo "Nothing to commit — skipping." && exit 0
+          DATE=$(date -u '+%Y-%m-%d')
+          TIME=$(date -u '+%H:%M')
+          git commit -m "The snake fed at $DATE $TIME UTC"
+          git push
